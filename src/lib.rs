@@ -1,9 +1,11 @@
+use futures::stream;
 use futures::stream::FuturesUnordered;
 use futures::Future;
+use futures::Stream;
 use futures::StreamExt;
+use std::fmt::Debug;
 use std::pin::Pin;
 use tokio::sync::mpsc;
-use std::fmt::Debug;
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T>>>;
 
@@ -64,8 +66,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn it_works() {
-
+    async fn taskpool() {
         async fn transform(duration: u64) -> u64 {
             tokio::time::sleep(tokio::time::Duration::from_secs(duration)).await;
             duration
@@ -87,6 +88,41 @@ mod tests {
                 }
             }
         }
+    }
 
+    #[tokio::test]
+    async fn chained_buffered_unordered() {
+        use tokio::time::{sleep, Duration};
+
+        #[tracing::instrument]
+        async fn async_fn0(id: u64) -> u64 {
+            tracing::info!(id);
+            sleep(Duration::from_secs(5)).await;
+            id
+        }
+
+        #[tracing::instrument]
+        async fn async_fn1(id: u64) -> u64 {
+            tracing::info!(id);
+            sleep(Duration::from_secs(5)).await;
+            id
+        }
+
+        fn create_stream() -> impl Stream<Item = u64> {
+            stream::iter(1..)
+                .map(async_fn0)
+                .buffer_unordered(6)
+                .flat_map(|id| stream::iter([id]))
+                .map(async_fn1)
+                .buffer_unordered(3)
+        }
+
+        async fn execute_stream(n: usize) -> Vec<u64> {
+            create_stream().collect().await
+        }
+
+        tracing_subscriber::fmt::init();
+
+        execute_stream().await;
     }
 }

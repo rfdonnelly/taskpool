@@ -13,3 +13,34 @@ This is an alternative approach to https://docs.rs/futures/latest/futures/stream
 
 I originally thought that buffer_unordered could not be chained.
 This post https://gendignoux.com/blog/2021/04/01/rust-async-streams-futures-part1.html[Asynchronous streams in Rust (part 1) - Futures, buffering and mysterious compilation error messages] suggests otherwise.
+
+So chaining isn't as simple as:
+
+[source,rust]
+----
+stream::iter(0..)
+    .map(transform0)
+    .buffer_unordered(n)
+    .map(transform1)
+    .buffer_unordered(m)
+    .collect()
+    .await
+----
+
+This is a single stream and buffer_unordered applies to the entirety of the stream.
+The last buffer_unordered is used and any prior buffer_unordered calls are effectively ignored.
+
+For multiple buffer points, the stream must be broken into multiple streams.
+This can be done by simply inserting a flat_map call that creates a new stream.
+
+[source,rust]
+----
+stream::iter(0..)
+    .map(transform0)
+    .buffer_unordered(n)
+    .flat_map(|item| stream::iter([item]))
+    .map(transform1)
+    .buffer_unordered(m)
+    .collect()
+    .await
+----
